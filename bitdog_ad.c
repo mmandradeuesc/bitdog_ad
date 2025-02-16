@@ -1,207 +1,176 @@
 #include <stdio.h>
-#include <stdlib.h> 
+#include <string.h> // Inclui a biblioteca para memset
 #include "pico/stdlib.h"
 #include "hardware/adc.h"
-#include "hardware/pwm.h"
 #include "hardware/i2c.h"
-#include "ssd1306.h"
+#include "hardware/pwm.h"
+#include "ssd1306.h" // Inclui o cabeçalho do SSD1306
 
 // Pin definitions
-#define LED_RED_PIN 11
-#define LED_GREEN_PIN 12
-#define LED_BLUE_PIN 13
-#define JOYSTICK_BTN_PIN 22
-#define BUTTON_A_PIN 5
+#define LED_RED_PIN 13
+#define LED_BLUE_PIN 12
 #define JOYSTICK_X_PIN 26
 #define JOYSTICK_Y_PIN 27
-#define I2C_SDA_PIN 14
-#define I2C_SCL_PIN 15
+#define JOYSTICK_PB 22
+#define Botao_A 5
 
+// Global variables for button states
+volatile int border_style = 0;         // Border style: 0 = solid, 1 = dashed, 2 = dotted
+volatile bool pwm_enabled = true;      // PWM enabled/disabled state
 
-// Display constants
-#define DISPLAY_WIDTH 128
-#define DISPLAY_HEIGHT 64
-#define SQUARE_SIZE 8
+// Initial position of the square
+int square_x = DISPLAY_WIDTH / 2 - 4;
+int square_y = DISPLAY_HEIGHT / 2 - 4;
 
-// Global variables
-volatile bool led_pwm_enabled = true;
-volatile bool green_led_state = false;
-volatile uint8_t border_style = 0;
-volatile uint32_t last_btn_time = 0;
-const uint32_t DEBOUNCE_DELAY = 200000; // 200ms in microseconds
-
-// Structure for square position
-typedef struct {
-    int x;
-    int y;
-} Position;
-
-Position square_pos = {
-    .x = (DISPLAY_WIDTH - SQUARE_SIZE) / 2,
-    .y = (DISPLAY_HEIGHT - SQUARE_SIZE) / 2
-};
-
-// Function prototypes
-void setup_gpio(void);
-void setup_pwm(void);
-void setup_adc(void);
-void setup_interrupts(void);
-void update_leds(uint16_t x_val, uint16_t y_val);
-void update_display(void);
-void joystick_btn_callback(uint gpio, uint32_t events);
-void button_a_callback(uint gpio, uint32_t events);
-
-// Interrupt callbacks with debouncing
-void joystick_btn_callback(uint gpio, uint32_t events) {
-    uint32_t current_time = time_us_32();
-    if (current_time - last_btn_time < DEBOUNCE_DELAY) {
-        return;
+// Function to map ADC values (0-4095) to PWM range (0-255)
+uint8_t map_adc_to_pwm(uint16_t adc_value) {
+    if (adc_value < 2048) {
+        return (uint8_t)((adc_value * 255) / 2048); // Scale down for lower half
+    } else {
+        return (uint8_t)(((adc_value - 2048) * 255) / 2048); // Scale up for upper half
     }
-    last_btn_time = current_time;
-
-    // Toggle green LED
-    green_led_state = !green_led_state;
-    gpio_put(LED_GREEN_PIN, green_led_state);
-
-    // Cycle border style
-    border_style = (border_style + 1) % 3;
-    update_display();
 }
 
-void button_a_callback(uint gpio, uint32_t events) {
-    uint32_t current_time = time_us_32();
-    if (current_time - last_btn_time < DEBOUNCE_DELAY) {
-        return;
-    }
-    last_btn_time = current_time;
+// Function to initialize PWM on a GPIO pin
+void pwm_init_pin(uint gpio_pin) {
+    gpio_set_function(gpio_pin, GPIO_FUNC_PWM);
+    uint slice_num = pwm_gpio_to_slice_num(gpio_pin);
+    pwm_set_wrap(slice_num, 255); // Set PWM period to 255
+    pwm_set_enabled(slice_num, true);
+}
 
-    // Toggle PWM LED enable state
-    led_pwm_enabled = !led_pwm_enabled;
-    if (!led_pwm_enabled) {
+// Debounce function
+bool debounce(uint gpio_pin) {
+    static uint32_t last_time = 0;
+    uint32_t current_time = time_us_32();
+    if (current_time - last_time < 200000) { // 200ms debounce time
+        return false;
+    }
+    last_time = current_time;
+    return true;
+}
+
+// Interrupt handler for joystick button
+void joystick_button_handler(uint gpio, uint32_t events) {
+    if (!debounce(gpio)) return;
+
+    // Cycle through border styles
+    border_style = (border_style + 1) % 3;
+}
+
+// Interrupt handler for button A
+void button_a_handler(uint gpio, uint32_t events) {
+    if (!debounce(gpio)) return;
+
+    // Toggle PWM enabled state
+    pwm_enabled = !pwm_enabled;
+    if (!pwm_enabled) {
         pwm_set_gpio_level(LED_RED_PIN, 0);
         pwm_set_gpio_level(LED_BLUE_PIN, 0);
     }
 }
 
-void setup_gpio(void) {
-    // Initialize LED pins
-    gpio_init(LED_RED_PIN);
-    gpio_init(LED_GREEN_PIN);
-    gpio_init(LED_BLUE_PIN);
-    gpio_set_dir(LED_GREEN_PIN, GPIO_OUT);
+int main() {
+    // Initialize stdio for debugging
+    stdio_init_all();
 
-    // Initialize button pins with pull-ups
-    gpio_init(JOYSTICK_BTN_PIN);
-    gpio_init(BUTTON_A_PIN);
-    gpio_set_dir(JOYSTICK_BTN_PIN, GPIO_IN);
-    gpio_set_dir(BUTTON_A_PIN, GPIO_IN);
-    gpio_pull_up(JOYSTICK_BTN_PIN);
-    gpio_pull_up(BUTTON_A_PIN);
-}
+    // Initialize SSD1306 display
+    ssd1306_init();
 
-void setup_pwm(void) {
-    // Configure PWM for RED and BLUE LEDs
-    gpio_set_function(LED_RED_PIN, GPIO_FUNC_PWM);
-    gpio_set_function(LED_BLUE_PIN, GPIO_FUNC_PWM);
-
-    uint slice_red = pwm_gpio_to_slice_num(LED_RED_PIN);
-    uint slice_blue = pwm_gpio_to_slice_num(LED_BLUE_PIN);
-
-    pwm_set_wrap(slice_red, 255);
-    pwm_set_wrap(slice_blue, 255);
-
-    pwm_set_enabled(slice_red, true);
-    pwm_set_enabled(slice_blue, true);
-}
-
-void setup_adc(void) {
+    // Initialize ADC for joystick
     adc_init();
     adc_gpio_init(JOYSTICK_X_PIN);
     adc_gpio_init(JOYSTICK_Y_PIN);
-}
 
-void setup_interrupts(void) {
-    gpio_set_irq_enabled_with_callback(JOYSTICK_BTN_PIN, GPIO_IRQ_EDGE_FALL, true, &joystick_btn_callback);
-    gpio_set_irq_enabled_with_callback(BUTTON_A_PIN, GPIO_IRQ_EDGE_FALL, true, &button_a_callback);
-}
+    // Initialize GPIOs for buttons
+    gpio_init(JOYSTICK_PB);
+    gpio_set_dir(JOYSTICK_PB, GPIO_IN);
+    gpio_pull_up(JOYSTICK_PB);
+    gpio_init(Botao_A);
+    gpio_set_dir(Botao_A, GPIO_IN);
+    gpio_pull_up(Botao_A);
 
-void update_leds(uint16_t x_val, uint16_t y_val) {
-    if (!led_pwm_enabled) {
-        return;
-    }
+    // Enable interrupts for buttons
+    gpio_set_irq_enabled_with_callback(JOYSTICK_PB, GPIO_IRQ_EDGE_FALL, true, &joystick_button_handler);
+    gpio_set_irq_enabled_with_callback(Botao_A, GPIO_IRQ_EDGE_FALL, true, &button_a_handler);
 
-    // Calculate LED intensity based on joystick position
-    uint8_t red_intensity = abs(x_val - 2048) * 255 / 2048;
-    uint8_t blue_intensity = abs(y_val - 2048) * 255 / 2048;
+    // Initialize PWM for LEDs
+    pwm_init_pin(LED_RED_PIN);
+    pwm_init_pin(LED_BLUE_PIN);
 
-    pwm_set_gpio_level(LED_RED_PIN, red_intensity);
-    pwm_set_gpio_level(LED_BLUE_PIN, blue_intensity);
-}
-
-void update_display(void) {
-    // Clear display
-    ssd1306_clear();
-
-    // Draw border based on current style
-    switch (border_style) {
-        case 0:
-            ssd1306_draw_rectangle(0, 0, DISPLAY_WIDTH-1, DISPLAY_HEIGHT-1, 1);
-            break;
-        case 1:
-            ssd1306_draw_dashed_rectangle(0, 0, DISPLAY_WIDTH-1, DISPLAY_HEIGHT-1, 1);
-            break;
-        case 2:
-            ssd1306_draw_dotted_rectangle(0, 0, DISPLAY_WIDTH-1, DISPLAY_HEIGHT-1, 1);
-            break;
-    }
-
-    // Draw square at current position
-    ssd1306_fill_rectangle(square_pos.x, square_pos.y, SQUARE_SIZE, SQUARE_SIZE, 1);
-    
-    // Update display
-    ssd1306_show();
-}
-
-int main() {
-    stdio_init_all();
-
-    // Initialize all subsystems
-    setup_gpio();
-    setup_pwm();
-    setup_adc();
-    setup_interrupts();
-
-    // Initialize I2C for display
-    i2c_init(i2c0, 400000);
-    gpio_set_function(I2C_SDA_PIN, GPIO_FUNC_I2C);
-    gpio_set_function(I2C_SCL_PIN, GPIO_FUNC_I2C);
-    gpio_pull_up(I2C_SDA_PIN);
-    gpio_pull_up(I2C_SCL_PIN);
-
-    // Initialize display
-    ssd1306_init();
-    ssd1306_clear();
-    update_display();
-
-    while (1) {
-        // Read joystick values
-        adc_select_input(0);
+    while (true) {
+        // Read joystick X and Y values
+        adc_select_input(0); // X-axis
         uint16_t x_val = adc_read();
-        adc_select_input(1);
+        adc_select_input(1); // Y-axis
         uint16_t y_val = adc_read();
 
-        // Update LED intensity
-        update_leds(x_val, y_val);
+        // Update LED intensities
+        if (pwm_enabled) {
+            uint slice_red = pwm_gpio_to_slice_num(LED_RED_PIN);
+            uint slice_blue = pwm_gpio_to_slice_num(LED_BLUE_PIN);
+            pwm_set_gpio_level(LED_RED_PIN, map_adc_to_pwm(x_val));  // Red LED controlled by X-axis
+            pwm_set_gpio_level(LED_BLUE_PIN, map_adc_to_pwm(y_val)); // Blue LED controlled by Y-axis
+        }
 
-        // Update square position
-        square_pos.x = ((DISPLAY_WIDTH - SQUARE_SIZE) * x_val) / 4095;
-        square_pos.y = ((DISPLAY_HEIGHT - SQUARE_SIZE) * y_val) / 4095;
+        // Map joystick values to display coordinates
+        int new_x = (x_val * (DISPLAY_WIDTH - 8)) / 4095; // Scale X to fit display width
+        int new_y = (y_val * (DISPLAY_HEIGHT - 8)) / 4095; // Scale Y to fit display height
+
+        // Update square position if it has changed
+        if (new_x != square_x || new_y != square_y) {
+            square_x = new_x;
+            square_y = new_y;
+        }
+
+        // Clear display buffer
+        ssd1306_clear();
+
+        // Draw border based on current style
+        switch (border_style) {
+            case 0: // Solid border
+                for (int i = 0; i < DISPLAY_WIDTH; i++) {
+                    ssd1306_draw_pixel(i, 0, true);
+                    ssd1306_draw_pixel(i, DISPLAY_HEIGHT - 1, true);
+                }
+                for (int i = 0; i < DISPLAY_HEIGHT; i++) {
+                    ssd1306_draw_pixel(0, i, true);
+                    ssd1306_draw_pixel(DISPLAY_WIDTH - 1, i, true);
+                }
+                break;
+            case 1: // Dashed border
+                for (int i = 0; i < DISPLAY_WIDTH; i += 4) {
+                    ssd1306_draw_pixel(i, 0, true);
+                    ssd1306_draw_pixel(i, DISPLAY_HEIGHT - 1, true);
+                }
+                for (int i = 0; i < DISPLAY_HEIGHT; i += 4) {
+                    ssd1306_draw_pixel(0, i, true);
+                    ssd1306_draw_pixel(DISPLAY_WIDTH - 1, i, true);
+                }
+                break;
+            case 2: // Dotted border
+                for (int i = 0; i < DISPLAY_WIDTH; i += 8) {
+                    ssd1306_draw_pixel(i, 0, true);
+                    ssd1306_draw_pixel(i, DISPLAY_HEIGHT - 1, true);
+                }
+                for (int i = 0; i < DISPLAY_HEIGHT; i += 8) {
+                    ssd1306_draw_pixel(0, i, true);
+                    ssd1306_draw_pixel(DISPLAY_WIDTH - 1, i, true);
+                }
+                break;
+        }
+
+        // Draw square
+        for (int i = square_x; i < square_x + 8; i++) {
+            for (int j = square_y; j < square_y + 8; j++) {
+                ssd1306_draw_pixel(i, j, true);
+            }
+        }
 
         // Update display
-        update_display();
+        ssd1306_update();
 
-        sleep_ms(20); // Small delay to prevent display flickering
+        // Small delay to avoid excessive CPU usage
+        sleep_ms(50);
     }
-
-    return 0;
 }
