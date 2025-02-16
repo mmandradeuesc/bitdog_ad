@@ -11,6 +11,14 @@
       "attrs": { "builder": "pico-sdk" }
     },
     {
+      "type": "wokwi-rgb-led",
+      "id": "rgb1",
+      "top": 47,
+      "left": -162.9,
+      "rotate": 270,
+      "attrs": { "common": "cathode" }
+    },
+    {
       "type": "wokwi-analog-joystick",
       "id": "joystick1",
       "top": -135,
@@ -35,30 +43,15 @@
     {
       "type": "wokwi-pushbutton",
       "id": "btn1",
-      "top": -137.8,
-      "left": -19.2,
+      "top": -51.4,
+      "left": -153.6,
       "attrs": { "color": "green" }
     },
     {
       "type": "wokwi-resistor",
       "id": "r1",
-      "top": 99.95,
-      "left": -86.4,
-      "attrs": { "value": "1000" }
-    },
-    { "type": "wokwi-led", "id": "led1", "top": 54, "left": -121, "attrs": { "color": "red" } },
-    {
-      "type": "wokwi-led",
-      "id": "led2",
-      "top": -3.6,
-      "left": -101.8,
-      "attrs": { "color": "blue" }
-    },
-    {
-      "type": "wokwi-resistor",
-      "id": "r2",
-      "top": 51.95,
-      "left": -76.8,
+      "top": 90.35,
+      "left": -96,
       "attrs": { "value": "1000" }
     }
   ],
@@ -70,7 +63,13 @@
     [ "joystick1:HORZ", "pico:GP26", "gold", [ "v0" ] ],
     [ "joystick1:VERT", "pico:GP27", "orange", [ "v0" ] ],
     [ "vcc1:VCC", "oled1:VCC", "red", [ "h76.8", "v48" ] ],
+    [ "btn1:1.r", "pico:GND.1", "black", [ "v0" ] ],
+    [ "btn1:2.r", "pico:GP5", "#8f4814", [ "h29", "v19.4" ] ],
+    [ "rgb1:COM", "r1:1", "black", [ "v-0.1", "h18.8" ] ],
     [ "pico:GND.4", "r1:2", "black", [ "h-19.2", "v-9.56" ] ],
+    [ "pico:GP13", "rgb1:R", "red", [ "h-9.6", "v9.64", "h-105.6", "v-9.6" ] ],
+    [ "pico:GP12", "rgb1:B", "blue", [ "h-19.2", "v-19.16", "h-9.6" ] ],
+    [ "pico:GP11", "rgb1:G", "green", [ "h0" ] ],
     [ "pico:GND.5", "joystick1:GND", "black", [ "h105.91", "v0.04" ] ],
     [
       "oled1:GND",
@@ -78,15 +77,8 @@
       "black",
       [ "v-38.4", "h-48", "v134.4", "h211.2", "v-278.4", "h0", "v-19.2" ]
     ],
-    [ "pico:GP12", "led2:A", "green", [ "h0" ] ],
-    [ "pico:GP13", "led1:A", "green", [ "h0" ] ],
-    [ "pico:GND.3", "r2:2", "black", [ "h0" ] ],
-    [ "r2:1", "led2:C", "green", [ "v0", "h-9.6" ] ],
-    [ "r1:1", "led1:C", "green", [ "v0", "h-19.2", "v-19.2" ] ],
-    [ "pico:GP5", "btn1:1.l", "green", [ "h-38.4", "v-124.8" ] ],
-    [ "pico:GND.1", "btn1:2.l", "black", [ "h-19.2", "v-67.2", "h-9.6" ] ],
-    [ "oled1:SDA", "pico:GP14", "green", [ "v-153.6", "h9.67" ] ],
-    [ "oled1:SCL", "pico:GP15", "green", [ "v-144", "h9.9" ] ]
+    [ "oled1:SCL", "pico:GP15", "green", [ "v-144", "h19.5" ] ],
+    [ "oled1:SDA", "pico:GP14", "green", [ "v-153.6", "h9.67" ] ]
   ],
   "dependencies": {}
 }
