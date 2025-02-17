@@ -5,11 +5,11 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-// Display dimensions
+// Display dimensões 
 #define DISPLAY_WIDTH 128
 #define DISPLAY_HEIGHT 64
 
-// I2C configuration
+// I2C configuração
 #define I2C_PORT i2c1
 #define I2C_SDA 14
 #define I2C_SCL 15
@@ -18,7 +18,7 @@
 // Display buffer
 extern uint8_t buffer[DISPLAY_HEIGHT/8][DISPLAY_WIDTH];  // Reorganizado para páginas
 
-// Function declarations
+// Declaração de funções
 void ssd1306_send_command(uint8_t cmd);
 void ssd1306_send_data(uint8_t *data, size_t len);
 void ssd1306_init(void);

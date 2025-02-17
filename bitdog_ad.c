@@ -6,7 +6,7 @@
 #include "hardware/pwm.h"
 #include "ssd1306.h"
 
-// Pin definitions
+// Definição GPIO
 #define LED_RED_PIN 13
 #define LED_GREEN_PIN 11
 #define LED_BLUE_PIN 12
@@ -15,29 +15,32 @@
 #define JOYSTICK_PB 22
 #define Botao_A 5
 
-// Global variables for states
+// Variáveis globais
 volatile int border_style = 0;         
 volatile bool pwm_enabled = true;      
 volatile bool green_led_state = false; 
+volatile int prev_square_x = -1;
+volatile int prev_square_y = -1;
+volatile int prev_border_style = -1;
 
-// Square position (start at center)
+// Posição quadrada (iniciar no centro)
 volatile int square_x = 60;  // (128/2 - 4)
 volatile int square_y = 28;  // (64/2 - 4)
 
-// Generic interrupt handler for all buttons
+// Manipulador de interrupção genérico para todos os botões
 void gpio_callback(uint gpio, uint32_t events) {
     static uint32_t last_time = 0;
     uint32_t current_time = time_us_32();
     
-    // Debounce check
+    // Debounce checagem
     if (current_time - last_time < 200000) return; // 200ms debounce
     last_time = current_time;
 
     if (gpio == JOYSTICK_PB) {
-        // Toggle green LED
+        // Alternar LED verde
         green_led_state = !green_led_state;
         gpio_put(LED_GREEN_PIN, green_led_state);
-        // Update border style
+        //Atualizar estilo de borda
         border_style = (border_style + 1) % 3;
     } 
     else if (gpio == Botao_A) {
@@ -49,7 +52,7 @@ void gpio_callback(uint gpio, uint32_t events) {
     }
 }
 
-// Function to map joystick values to LED intensity
+// Função intensidade dos leds joystick 
 uint8_t map_joystick_to_led(uint16_t val) {
     if (val < 1948) {
         return (uint8_t)((1948 - val) * 255 / 1948);
@@ -59,10 +62,12 @@ uint8_t map_joystick_to_led(uint16_t val) {
     return 0;
 }
 
-// Function to map joystick values to display coordinates
+// Mapeamento do josysttick X para o quadrado
 int map_to_display(uint16_t val, int max_pos, bool is_x) {
-    // Inverte o valor do ADC
-    val = 4095 - val;
+    // Remove a inversão do valor do ADC para o eixo X
+    if (!is_x) {
+        val = 4095 - val; // Mantém a inversão apenas para o eixo Y
+    }
     
     // Calcula o centro e range
     int center = is_x ? (DISPLAY_WIDTH - 8) / 2 : (DISPLAY_HEIGHT - 8) / 2;
@@ -82,20 +87,20 @@ int main() {
     ssd1306_clear();
     ssd1306_update();
 
-    // Initialize display
+    // Inicializando o display
     ssd1306_init();
     
-    // Initialize ADC
+    // Inicializando o  ADC
     adc_init();
     adc_gpio_init(JOYSTICK_X_PIN);
     adc_gpio_init(JOYSTICK_Y_PIN);
 
     // Initialize LEDs
-    // Green LED (normal GPIO)
+    // Led Verde (normal GPIO)
     gpio_init(LED_GREEN_PIN);
     gpio_set_dir(LED_GREEN_PIN, GPIO_OUT);
     
-    // Red and Blue LEDs (PWM)
+    // Lendo led Azul (PWM)
     gpio_set_function(LED_RED_PIN, GPIO_FUNC_PWM);
     gpio_set_function(LED_BLUE_PIN, GPIO_FUNC_PWM);
     
@@ -108,7 +113,7 @@ int main() {
     pwm_set_enabled(slice_red, true);
     pwm_set_enabled(slice_blue, true);
 
-    // Initialize buttons
+    // Inicialização botões
     gpio_init(JOYSTICK_PB);
     gpio_set_dir(JOYSTICK_PB, GPIO_IN);
     gpio_pull_up(JOYSTICK_PB);
@@ -117,62 +122,75 @@ int main() {
     gpio_set_dir(Botao_A, GPIO_IN);
     gpio_pull_up(Botao_A);
 
-    // Set up interrupts
+    // Interrupções
     gpio_set_irq_enabled_with_callback(JOYSTICK_PB, GPIO_IRQ_EDGE_FALL, true, &gpio_callback);
     gpio_set_irq_enabled(Botao_A, GPIO_IRQ_EDGE_FALL, true);
 
     while (true) {
-        ssd1306_clear();
-        // Read joystick values
+        // Leitura do joystick
         adc_select_input(0);
         uint16_t y_val = adc_read();
         adc_select_input(1);
         uint16_t x_val = adc_read();
-
-        // Update LED intensities if enabled
+    
+        // Atualização dos LEDs
         if (pwm_enabled) {
             pwm_set_gpio_level(LED_RED_PIN, map_joystick_to_led(x_val));
             pwm_set_gpio_level(LED_BLUE_PIN, map_joystick_to_led(y_val));
         }
-
-        // Update square position
-        square_x = map_to_display(x_val, DISPLAY_WIDTH, true);
-        square_y = map_to_display(y_val, DISPLAY_HEIGHT, false);
-
-        // Clear display
-        ssd1306_update();
-
-        // Draw border
-        for (int i = 0; i < DISPLAY_WIDTH; i++) {
-            if (border_style == 0 || // Solid
-                (border_style == 1 && i % 4 == 0) || // Dashed
-                (border_style == 2 && i % 8 == 0)) { // Dotted
-                ssd1306_draw_pixel(i, 0, true);
-                ssd1306_draw_pixel(i, DISPLAY_HEIGHT - 1, true);
-            }
-        }
-        for (int i = 0; i < DISPLAY_HEIGHT; i++) {
-            if (border_style == 0 || 
-                (border_style == 1 && i % 4 == 0) ||
-                (border_style == 2 && i % 8 == 0)) {
-                ssd1306_draw_pixel(0, i, true);
-                ssd1306_draw_pixel(DISPLAY_WIDTH - 1, i, true);
-            }
-        }
-
-        // Draw 8x8 square
-        for (int i = 0; i < 8; i++) {
-            for (int j = 0; j < 8; j++) {
-                if (square_x + i >= 0 && square_x + i < DISPLAY_WIDTH &&
-                    square_y + j >= 0 && square_y + j < DISPLAY_HEIGHT) {
-                    ssd1306_draw_pixel(square_x + i, square_y + j, true);
+    
+        // Calcula as novas posições
+        int new_square_x = map_to_display(x_val, DISPLAY_WIDTH, true);
+        int new_square_y = map_to_display(y_val, DISPLAY_HEIGHT, false);
+    
+        // Só atualiza o display se houver mudança na posição ou no estilo da borda
+        if (new_square_x != prev_square_x || 
+            new_square_y != prev_square_y || 
+            border_style != prev_border_style) {
+            
+            ssd1306_clear();
+    
+            // Desenho da borda
+            for (int i = 0; i < DISPLAY_WIDTH; i++) {
+                if (border_style == 0 || 
+                    (border_style == 1 && i % 4 == 0) || 
+                    (border_style == 2 && i % 8 == 0)) {
+                    ssd1306_draw_pixel(i, 0, true);
+                    ssd1306_draw_pixel(i, 1, true);
+                    ssd1306_draw_pixel(i, DISPLAY_HEIGHT - 1, true);
+                    ssd1306_draw_pixel(i, DISPLAY_HEIGHT - 2, true);
                 }
             }
+            for (int i = 0; i < DISPLAY_HEIGHT; i++) {
+                if (border_style == 0 || 
+                    (border_style == 1 && i % 4 == 0) ||
+                    (border_style == 2 && i % 8 == 0)) {
+                    ssd1306_draw_pixel(0, i, true);
+                    ssd1306_draw_pixel(1, i, true);
+                    ssd1306_draw_pixel(DISPLAY_WIDTH - 1, i, true);
+                    ssd1306_draw_pixel(DISPLAY_WIDTH - 2, i, true);
+                }
+            }
+    
+            // Desenho do quadrado
+            for (int i = 0; i < 8; i++) {
+                for (int j = 0; j < 8; j++) {
+                    if (new_square_x + i >= 0 && new_square_x + i < DISPLAY_WIDTH &&
+                        new_square_y + j >= 0 && new_square_y + j < DISPLAY_HEIGHT) {
+                        ssd1306_draw_pixel(new_square_x + i, new_square_y + j, true);
+                    }
+                }
+            }
+    
+            // Atualiza o display
+            ssd1306_update();
+    
+            // Armazena as posições atuais
+            prev_square_x = new_square_x;
+            prev_square_y = new_square_y;
+            prev_border_style = border_style;
         }
-
-        // Update display
-        ssd1306_update();
-
+    
         sleep_ms(20);
     }
 
