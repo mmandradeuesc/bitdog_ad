@@ -61,18 +61,26 @@ uint8_t map_joystick_to_led(uint16_t val) {
 
 // Function to map joystick values to display coordinates
 int map_to_display(uint16_t val, int max_pos, bool is_x) {
-    if (val < 1948 || val > 2148) {
-        if (is_x) {
-            return (val * (max_pos - 8)) / 4095;
-        } else {
-            return (val * (max_pos - 8)) / 4095;
-        }
+    // Inverte o valor do ADC
+    val = 4095 - val;
+    
+    // Calcula o centro e range
+    int center = is_x ? (DISPLAY_WIDTH - 8) / 2 : (DISPLAY_HEIGHT - 8) / 2;
+    int range = is_x ? (DISPLAY_WIDTH - 8) / 2 : (DISPLAY_HEIGHT - 8) / 2;
+    
+    if (val < 1948) {
+        return center - ((1948 - val) * range / 1948);
+    } else if (val > 2148) {
+        return center + ((val - 2148) * range / 1947);
     }
-    return is_x ? 60 : 28; // Return center position
+    return center;
 }
 
 int main() {
     stdio_init_all();
+    ssd1306_init();
+    ssd1306_clear();
+    ssd1306_update();
 
     // Initialize display
     ssd1306_init();
@@ -114,11 +122,12 @@ int main() {
     gpio_set_irq_enabled(Botao_A, GPIO_IRQ_EDGE_FALL, true);
 
     while (true) {
+        ssd1306_clear();
         // Read joystick values
         adc_select_input(0);
-        uint16_t x_val = adc_read();
-        adc_select_input(1);
         uint16_t y_val = adc_read();
+        adc_select_input(1);
+        uint16_t x_val = adc_read();
 
         // Update LED intensities if enabled
         if (pwm_enabled) {
@@ -131,7 +140,7 @@ int main() {
         square_y = map_to_display(y_val, DISPLAY_HEIGHT, false);
 
         // Clear display
-        ssd1306_clear();
+        ssd1306_update();
 
         // Draw border
         for (int i = 0; i < DISPLAY_WIDTH; i++) {
